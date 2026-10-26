@@ -7,11 +7,11 @@ const app = express();
 app.use(express.json());
 
 let whatsappClient = null;
-const SESSION_NAME = 'whatsapp-worker-session';
+const SESSION_NAME = 'whatsapp-worker-session'; // Aligned with your Python script token upload
 const CF_WORKER_URL = process.env.CF_WORKER_URL; 
 const API_SECRET = process.env.API_SECRET;
 
-// Custom token store with safety fallback against corrupted or dead tokens
+// Custom token store to fetch pre-authenticated session tokens from Cloudflare D1
 const cloudflareTokenStore = {
   saveToken: async (sessionName, token) => {
     try {
@@ -23,7 +23,7 @@ const cloudflareTokenStore = {
         },
         body: JSON.stringify({ sessionName, token })
       });
-      console.log('New session token successfully saved to Cloudflare D1!');
+      console.log('Session token backed up to Cloudflare D1.');
     } catch (err) {
       console.error('Failed to save token to Cloudflare:', err);
     }
@@ -35,42 +35,27 @@ const cloudflareTokenStore = {
         headers: { 'Authorization': `Bearer ${API_SECRET}` }
       });
       const data = await res.json();
-      
-      // If token looks invalid or empty, return null to force a fresh QR generation
-      if (data && data.token && typeof data.token === 'string' && data.token.length > 50) {
-        console.log('Valid pre-authenticated session token retrieved from Cloudflare D1.');
+      if (data && data.token) {
+        console.log('Pre-authenticated session token retrieved from Cloudflare D1.');
         return data.token;
-      } else {
-        console.log('No valid token found in D1 or token is stale. Forcing fresh QR generation...');
-        return null;
       }
     } catch (err) {
       console.error('Failed to retrieve token from Cloudflare:', err);
-      return null;
     }
+    return null;
   },
   removeToken: async () => true,
   tokenExists: async (sessionName) => true,
   listTokens: async () => [SESSION_NAME]
 };
 
-// Clear local token folder on boot to prevent stale file lock conflicts
-const tokenDir = path.join('./tokens', SESSION_NAME);
-if (fs.existsSync(tokenDir)) {
-  try {
-    fs.rmSync(tokenDir, { recursive: true, force: true });
-    console.log('Cleared local stale session files to ensure a clean boot.');
-  } catch (e) {
-    console.warn('Could not clear local token folder:', e.message);
-  }
-}
-
-// Initialize WPPConnect with QR logging enabled
+// Initialize WPPConnect using the pre-loaded database token
 wppconnect.create({
-  session: 'whatsapp-fresh-session', // Changed session name to force fresh generation
+  session: SESSION_NAME,
   autoClose: false,
   headless: true,
   useHere: true,
+  tokenStore: cloudflareTokenStore,
   folderNameToken: './tokens',
   browserArgs: [
     '--no-sandbox',
@@ -86,7 +71,7 @@ wppconnect.create({
     '--disable-sync',
     '--metrics-recording-only',
     '--no-default-browser-check',
-    '--single-process', // Forces Chromium to run in a single process to save RAM
+    '--single-process', // Lowers RAM usage for 512MB container limit
     '--headless=new'
   ],
   puppeteerOptions: {
@@ -95,11 +80,11 @@ wppconnect.create({
   statusFind: (statusSession) => {
     console.log('WhatsApp Status: ', statusSession);
   },
-  logQR: true
+  logQR: false
 })
 .then((client) => {
   whatsappClient = client;
-  console.log('WhatsApp Client successfully connected and ready!');
+  console.log('WhatsApp Client successfully restored and ready via Cloudflare D1 token!');
 })
 .catch((error) => {
   console.error('Error initializing WhatsApp client:', error);
