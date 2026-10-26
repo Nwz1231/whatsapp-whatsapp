@@ -70,7 +70,7 @@ wppconnect.create({
   statusFind: (statusSession) => {
     console.log('WhatsApp Status: ', statusSession);
   },
-  logQR: false
+  logQR: true // <--- Enabled this to print QR code directly in the Render console logs
 })
 .then((client) => {
   whatsappClient = client;
