@@ -7,7 +7,10 @@ const app = express();
 app.use(express.json());
 
 let whatsappClient = null;
-const SESSION_NAME = 'whatsapp-worker-session'; // Aligned with your Python script token upload
+let latestQRCodeImage = ''; // Stores the QR code data URL
+let connectionStatus = 'initializing';
+
+const SESSION_NAME = 'whatsapp-worker-session';
 const CF_WORKER_URL = process.env.CF_WORKER_URL; 
 const API_SECRET = process.env.API_SECRET;
 
@@ -71,7 +74,7 @@ wppconnect.create({
     '--disable-sync',
     '--metrics-recording-only',
     '--no-default-browser-check',
-    '--single-process', // Lowers RAM usage for 512MB container limit
+    '--single-process',
     '--headless=new'
   ],
   puppeteerOptions: {
@@ -79,21 +82,45 @@ wppconnect.create({
   },
   statusFind: (statusSession) => {
     console.log('WhatsApp Status: ', statusSession);
+    connectionStatus = statusSession;
   },
-  logQR: false
+  catchQR: (base64Qr, asciiQR, attempts, urlCode) => {
+    // Capture the clean base64 image data URI of the QR code
+    latestQRCodeImage = base64Qr;
+    console.log(`QR Code received (Attempt ${attempts}). Open /qr on your web service to scan.`);
+  },
+  logQR: true
 })
 .then((client) => {
   whatsappClient = client;
+  connectionStatus = 'inChat';
   console.log('WhatsApp Client successfully restored and ready via Cloudflare D1 token!');
 })
 .catch((error) => {
   console.error('Error initializing WhatsApp client:', error);
+  connectionStatus = 'error';
+});
+
+// Web route to view and scan the QR code directly from your browser
+app.get('/qr', (req, res) => {
+  if (!latestQRCodeImage) {
+    return res.send(`<html><body><h2>QR code not generated yet or already authenticated. Status: ${connectionStatus}</h2></body></html>`);
+  }
+  res.send(`
+    <html>
+      <body style="display: flex; flex-direction: column; align-items: center; justify-content: height: 100vh; font-family: sans-serif;">
+        <h2>Scan this QR Code with WhatsApp</h2>
+        <img src="${latestQRCodeImage}" alt="WhatsApp QR Code" style="width: 300px; height: 300px; border: 2px solid #ccc; padding: 10px;" />
+        <p>Status: ${connectionStatus}</p>
+      </body>
+    </html>
+  `);
 });
 
 // Secure endpoint called by Cloudflare Worker queue
 app.post('/send-message', async (req, res) => {
   const authHeader = req.headers['authorization'];
-  if (authHeader !== `Bearer ${API_SECRET}`) {
+  if (authHeader !== `Bearer ${API_SESSION || API_SECRET}`) {
     return res.status(401).json({ success: false, error: 'Unauthorized' });
   }
 
@@ -115,7 +142,7 @@ app.post('/send-message', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'running', clientReady: whatsappClient !== null });
+  res.json({ status: 'running', clientReady: whatsappClient !== null, connectionStatus });
 });
 
 const PORT = process.env.PORT || 10000;
