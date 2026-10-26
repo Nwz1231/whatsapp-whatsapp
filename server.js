@@ -81,6 +81,12 @@ wppconnect.create({
     '--no-zygote',
     '--disable-gpu',
     '--disable-software-rasterizer',
+    '--disable-extensions',
+    '--disable-background-networking',
+    '--disable-sync',
+    '--metrics-recording-only',
+    '--no-default-browser-check',
+    '--single-process', // Forces Chromium to run in a single process to save RAM
     '--headless=new'
   ],
   puppeteerOptions: {
