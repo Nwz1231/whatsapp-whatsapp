@@ -67,11 +67,10 @@ if (fs.existsSync(tokenDir)) {
 
 // Initialize WPPConnect with QR logging enabled
 wppconnect.create({
-  session: SESSION_NAME,
+  session: 'whatsapp-fresh-session', // Changed session name to force fresh generation
   autoClose: false,
   headless: true,
   useHere: true,
-  tokenStore: cloudflareTokenStore,
   folderNameToken: './tokens',
   browserArgs: [
     '--no-sandbox',
@@ -90,7 +89,7 @@ wppconnect.create({
   statusFind: (statusSession) => {
     console.log('WhatsApp Status: ', statusSession);
   },
-  logQR: true // Prints the QR code directly in your Render logs
+  logQR: true
 })
 .then((client) => {
   whatsappClient = client;
